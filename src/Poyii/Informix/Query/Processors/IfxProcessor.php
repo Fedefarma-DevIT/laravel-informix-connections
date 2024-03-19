@@ -11,7 +11,6 @@ class IfxProcessor extends Processor
      * Process the results of a column listing query.
      *
      * @param  array  $results
-     *
      * @return array
      */
     public function processColumnListing($results)
@@ -19,7 +18,7 @@ class IfxProcessor extends Processor
         $mapping = function ($r) {
             $r = (object) $r;
 
-            return $r->colname;
+            return $r->column_name;
         };
 
         return array_map($mapping, $results);
@@ -34,4 +33,5 @@ class IfxProcessor extends Processor
     {
         return $results;
     }
+
 }

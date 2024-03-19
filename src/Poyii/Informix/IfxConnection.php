@@ -1,23 +1,23 @@
 <?php
 
 namespace Poyii\Informix;
-
-/*
+/**
  * Created by PhpStorm.
  * User: llaijiale
  * Date: 2016/1/20
  * Time: 14:34
  */
-use DateTimeInterface;
 use Illuminate\Database\Connection;
-use Poyii\Informix\Query\Grammars\IfxGrammar as QueryGrammar;
+use Illuminate\Database\Eloquent\Model;
 use Poyii\Informix\Query\Processors\IfxProcessor;
+use Poyii\Informix\Query\Grammars\IfxGrammar as QueryGrammar;
 use Poyii\Informix\Schema\Grammars\IfxGrammar as SchemaGrammar;
 use Poyii\Informix\Schema\IfxBuilder as SchemaBuilder;
-use Doctrine\DBAL\Driver\PDOInformix\Driver as DoctrineDriver;
+use DateTimeInterface;
 
 class IfxConnection extends Connection
 {
+
     /**
      * Get a schema builder instance for the connection.
      *
@@ -28,14 +28,24 @@ class IfxConnection extends Connection
         if (is_null($this->schemaGrammar)) {
             $this->useDefaultSchemaGrammar();
         }
-
         return new SchemaBuilder($this);
     }
 
-    public function prepareBindings(array $bindings)
+
+    /**
+     * Get the default post processor instance.
+     *
+     * @return \Illuminate\Database\Query\Processors\SqlServerProcessor
+     */
+    protected function getDefaultPostProcessor()
     {
+        return new IfxProcessor;
+    }
+
+
+    public function prepareBindings(array $bindings){
         $grammar = $this->getQueryGrammar();
-        if ($this->isTransEncoding()) {
+        if($this->isTransEncoding()){
             $db_encoding = $this->getConfig('db_encoding');
             $client_encoding = $this->getConfig('client_encoding');
             foreach ($bindings as $key => &$value) {
@@ -44,10 +54,10 @@ class IfxConnection extends Connection
                 // so we'll just ask the grammar for the format to get from the date.
                 if ($value instanceof DateTimeInterface) {
                     $value = $value->format($grammar->getDateFormat());
-                } elseif (false === $value) {
+                } elseif ($value === false) {
                     $value = 0;
                 }
-                if (is_string($value)) {
+                if(is_string($value)) {
                     $value = $this->convertCharset($client_encoding, $db_encoding, $value);
                 }
             }
@@ -55,13 +65,18 @@ class IfxConnection extends Connection
             foreach ($bindings as $key => &$value) {
                 if ($value instanceof DateTimeInterface) {
                     $value = $value->format($grammar->getDateFormat());
-                } elseif (false === $value) {
+                } elseif ($value === false) {
                     $value = 0;
                 }
             }
         }
-
         return $bindings;
+    }
+
+    protected function isTransEncoding(){
+        $db_encoding = $this->getConfig('db_encoding');
+        $client_encoding = $this->getConfig('client_encoding');
+        return ($db_encoding && $client_encoding && ($db_encoding != $client_encoding));
     }
 
     protected function convertCharset($in_encoding, $out_encoding, $value){
@@ -81,94 +96,37 @@ class IfxConnection extends Connection
     public function select($query, $bindings = [], $useReadPdo = true)
     {
         $results = parent::select($query, $bindings, $useReadPdo);
-        if ($this->isTransEncoding()) {
-            if ($results) {
+        if($this->isTransEncoding()){
+            if($results){
                 $db_encoding = $this->getConfig('db_encoding');
                 $client_encoding = $this->getConfig('client_encoding');
-                if (is_array($results) || is_object($results)) {
-                    foreach ($results as &$result) {
-                        if (is_array($result) || is_object($result)) {
-                            foreach ($result as $key=>&$value) {
-                                if (is_string($value)) {
+                if(is_array($results) || is_object($results)){
+                    foreach($results as &$result){
+                        if(is_subclass_of($result, Model::class)){
+                            $attributes = $result->getAttributes();
+                            foreach($attributes as $key=>$value){
+                                if(is_string($value)){
+                                    $value = $this->convertCharset($db_encoding, $client_encoding, $value);
+                                    $result->$key = $value;
+                                    $result->syncOriginalAttribute($key);
+                                }
+                            }
+                        } else if(is_array($result) || is_object($result)){
+                            foreach($result as $key=>&$value){
+                                if(is_string($value)){
                                     $value = $this->convertCharset($db_encoding, $client_encoding, $value);
                                 }
                             }
-                        } elseif (is_string($result)) {
-                                $result = $this->convertCharset($db_encoding, $client_encoding, $result);
-                            }
+                        } else if(is_string($result)) {
+                            $result = $this->convertCharset($db_encoding, $client_encoding, $result);
                         }
-                } elseif (is_string($results)) {
-                        $results = $this->convertCharset($db_encoding, $client_encoding, $results);
+                    }
+                } else if(is_string($results)) {
+                    $results = $this->convertCharset($db_encoding, $client_encoding, $results);
                 }
             }
         }
-
         return $results;
-    }
-
-    public function statement($query, $bindings = [])
-    {
-
-        return $this->run($query, $bindings, function ($query, $bindings) {
-            if ($this->pretending()) {
-                return true;
-            }
-            $count = substr_count($query, '?');
-            if ($count == count($bindings)) {
-                $bindings = $this->prepareBindings($bindings);
-
-                return $this->getPdo()->prepare($query)->execute($bindings);
-            }
-
-            if (count($bindings) % $count > 0) {
-                throw new \InvalidArgumentException('the driver can not support multi-insert.');
-            }
-            $mutiBindings = array_chunk($bindings, $count);
-            $this->beginTransaction();
-            try {
-                $pdo  = $this->getPdo();
-                $stmt = $pdo->prepare($query);
-
-                foreach ($mutiBindings as $mutiBinding) {
-                    $mutiBinding = $this->prepareBindings($mutiBinding);
-                    $stmt->execute($mutiBinding);
-                }
-            } catch (\Exception $e) {
-                $this->rollBack();
-
-                return false;
-            } catch (\Throwable $e) {
-                $this->rollBack();
-
-                return false;
-            }
-            $this->commit();
-
-            return true;
-        });
-    }
-
-    public function affectingStatement($query, $bindings = [])
-    {
-        return parent::affectingStatement($query, $bindings);
-    }
-
-    /**
-     * Get the default post processor instance.
-     *
-     * @return \Illuminate\Database\Query\Processors\SqlServerProcessor
-     */
-    protected function getDefaultPostProcessor()
-    {
-        return new IfxProcessor();
-    }
-
-    protected function isTransEncoding()
-    {
-        $db_encoding = $this->getConfig('db_encoding');
-        $client_encoding = $this->getConfig('client_encoding');
-
-        return $db_encoding && $client_encoding && ($db_encoding != $client_encoding);
     }
 
     /**
@@ -178,7 +136,7 @@ class IfxConnection extends Connection
      */
     protected function getDefaultQueryGrammar()
     {
-        return $this->withTablePrefix(new QueryGrammar());
+        return $this->withTablePrefix(new QueryGrammar);
     }
 
     /**
@@ -188,16 +146,54 @@ class IfxConnection extends Connection
      */
     protected function getDefaultSchemaGrammar()
     {
-        return $this->withTablePrefix(new SchemaGrammar());
+        return $this->withTablePrefix(new SchemaGrammar);
     }
 
-    /**
-     * Get the Doctrine DBAL driver.
-     *
-     * @return \Doctrine\DBAL\Driver\PDOInformix\Driver
-     */
-    protected function getDoctrineDriver()
+
+    public function statement($query, $bindings = [])
     {
-        return new DoctrineDriver;
+
+        return $this->run($query, $bindings, function ($query, $bindings) {
+            if ($this->pretending()) {
+                return true;
+            }
+            $count = substr_count($query, '?');
+            if($count == count($bindings)){
+                $bindings = $this->prepareBindings($bindings);
+                return $this->getPdo()->prepare($query)->execute($bindings);
+            }
+
+            if(count($bindings) % $count > 0)
+                throw new \InvalidArgumentException('the driver can not support multi-insert.');
+
+            $mutiBindings = array_chunk($bindings, $count);
+            $this->beginTransaction();
+            try{
+                $pdo = $this->getPdo();
+                $stmt = $pdo->prepare($query);
+
+                foreach($mutiBindings as $mutiBinding){
+                    $mutiBinding = $this->prepareBindings($mutiBinding);
+                    $stmt->execute($mutiBinding);
+                }
+            }catch(\Exception $e){
+                $this->rollBack();
+                return false;
+            }catch(\Throwable $e){
+                $this->rollBack();
+                return false;
+            }
+            $this->commit();
+
+            return true;
+
+        });
     }
+
+    public function affectingStatement($query, $bindings = [])
+    {
+        return parent::affectingStatement($query, $bindings);
+    }
+
+
 }

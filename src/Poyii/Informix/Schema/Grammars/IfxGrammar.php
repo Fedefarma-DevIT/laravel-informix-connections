@@ -3,18 +3,18 @@
  * Created by PhpStorm.
  * User: llaijiale
  * Date: 2016/1/20
- * Time: 14:38.
+ * Time: 14:38
  */
-
 namespace Poyii\Informix\Schema\Grammars;
 
-use Illuminate\Database\Connection;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Grammars\Grammar;
 use Illuminate\Support\Fluent;
+use Illuminate\Database\Connection;
+use Illuminate\Database\Schema\Blueprint;
 
 class IfxGrammar extends Grammar
 {
+
     /**
      * The possible column modifiers.
      *
@@ -34,16 +34,56 @@ class IfxGrammar extends Grammar
         return 'select * from systables where tabname=lower(?)';
     }
 
+
     public function compileColumnExists($table)
     {
         return 'select b.colname from systables a join syscolumns b on a.tabid=b.tabid where a.tabname=lower(?)';
+    }
+
+
+    protected function addPrimaryKeys(Blueprint $blueprint)
+    {
+        $primary = $this->getCommandByName($blueprint, 'primary');
+        if (! is_null($primary)) {
+            $columns = $this->columnize($primary->columns);
+            return ", primary key ( {$columns} ) constraint {$primary->index}";
+        }
+    }
+
+    protected function addForeignKeys(Blueprint $blueprint)
+    {
+        $sql = '';
+
+        $foreigns = $this->getCommandsByName($blueprint, 'foreign');
+
+        // Once we have all the foreign key commands for the table creation statement
+        // we'll loop through each of them and add them to the create table SQL we
+        // are building
+        foreach ($foreigns as $foreign) {
+            $on = $this->wrapTable($foreign->on);
+
+            $columns = $this->columnize($foreign->columns);
+
+            $onColumns = $this->columnize((array) $foreign->references);
+
+            $sql .= ", foreign key ( {$columns} ) references {$on} ( {$onColumns} ) constraint {$foreign->index}";
+
+            // Once we have the basic foreign key creation statement constructed we can
+            // build out the syntax for what should happen on an update or delete of
+            // the affected columns, which will get something like "cascade", etc.
+            if (! is_null($foreign->onDelete)) {
+                $sql .= " on delete {$foreign->onDelete}";
+            }
+        }
+
+        return $sql;
     }
 
     public function compileCreate(Blueprint $blueprint, Fluent $command)
     {
         $columns = implode(', ', $this->getColumns($blueprint));
 
-        $sql = $blueprint->temporary ? 'create temp' : 'create';
+        $sql = $blueprint->temporary ? "create temp" : 'create';
 
         $sql .= ' table '.$this->wrapTable($blueprint)." ( $columns";
 
@@ -58,16 +98,14 @@ class IfxGrammar extends Grammar
 
         $sql .= ' )';
 
-        if (isset($blueprint->engine)) {
-            if (is_string($blueprint->engine)) {
+        if(isset($blueprint->engine)){
+            if(is_string($blueprint->engine))
                 $sql.=$blueprint->engine;
-            } elseif (is_array($blueprint->engine)) {
-                if ($blueprint->engine['extent'] > 32) {
-                    $sql .= ' extent size ' . (int) $blueprint->engine['extent'];
-                }
-                if ($blueprint->engine['next'] > 32) {
-                    $sql .= ' next size ' . (int) $blueprint->engine['next'];
-                }
+            else if(is_array($blueprint->engine)){
+                if($blueprint->engine['extent'] > 32)
+                    $sql.=" extent size ".(int)$blueprint->engine['extent'];
+                if($blueprint->engine['next'] > 32)
+                    $sql.=" next size ".(int)$blueprint->engine['next'];
             }
         }
 
@@ -84,6 +122,7 @@ class IfxGrammar extends Grammar
 
         return $sql .= ' )';
     }
+
 
     /**
      * Compile a primary key command.
@@ -177,15 +216,6 @@ class IfxGrammar extends Grammar
     }
 
     /**
-     * Compile a drop table if exists command.
-     *
-     * @return string
-     */
-    public function compileDropIfExists(Blueprint $blueprint, Fluent $command)
-    {
-        return 'drop table if exists ' . $this->wrapTable($blueprint);
-    }
-    /**
      * Compile a drop column command.
      *
      * @return string
@@ -207,7 +237,6 @@ class IfxGrammar extends Grammar
     public function compileDropPrimary(Blueprint $blueprint, Fluent $command)
     {
         $table = $this->wrapTable($blueprint);
-
         return "alter table {$table} drop constraint {$command->index}";
     }
 
@@ -219,7 +248,6 @@ class IfxGrammar extends Grammar
     public function compileDropUnique(Blueprint $blueprint, Fluent $command)
     {
         $table = $this->wrapTable($blueprint);
-
         return "alter table {$table} drop constraint {$command->index}";
     }
 
@@ -241,7 +269,6 @@ class IfxGrammar extends Grammar
     public function compileDropForeign(Blueprint $blueprint, Fluent $command)
     {
         $table = $this->wrapTable($blueprint);
-
         return "alter table {$table} drop constraint {$command->index}";
     }
 
@@ -253,7 +280,6 @@ class IfxGrammar extends Grammar
     public function compileRename(Blueprint $blueprint, Fluent $command)
     {
         $table = $this->wrapTable($blueprint);
-
         return "rename table {$table} to ".$this->wrapTable($command->to);
     }
 
@@ -266,74 +292,30 @@ class IfxGrammar extends Grammar
     {
         $table = $this->wrapTable($blueprint);
         $rs = ["rename column {$table}.{$command->from} to {$command->to}"];
-
         return $rs;
     }
 
-    protected function addPrimaryKeys(Blueprint $blueprint)
-    {
-        $primary = $this->getCommandByName($blueprint, 'primary');
-        if (! is_null($primary)) {
-            $columns = $this->columnize($primary->columns);
-
-            return ", primary key ( {$columns} ) constraint {$primary->index}";
-        }
-    }
-
-    protected function addForeignKeys(Blueprint $blueprint)
-    {
-        $sql = '';
-
-        $foreigns = $this->getCommandsByName($blueprint, 'foreign');
-
-        // Once we have all the foreign key commands for the table creation statement
-        // we'll loop through each of them and add them to the create table SQL we
-        // are building
-        foreach ($foreigns as $foreign) {
-            $on = $this->wrapTable($foreign->on);
-
-            $columns = $this->columnize($foreign->columns);
-
-            $onColumns = $this->columnize((array) $foreign->references);
-
-            $sql .= ", foreign key ( {$columns} ) references {$on} ( {$onColumns} ) constraint {$foreign->index}";
-
-            // Once we have the basic foreign key creation statement constructed we can
-            // build out the syntax for what should happen on an update or delete of
-            // the affected columns, which will get something like "cascade", etc.
-            if (! is_null($foreign->onDelete)) {
-                $sql .= " on delete {$foreign->onDelete}";
-            }
-        }
-
-        return $sql;
-    }
 
     /**
      * Wrap a single string in keyword identifiers.
      *
      * @param  string  $value
-     *
      * @return string
      */
     protected function wrapValue($value)
     {
-        if ('*' === $value) {
+        if ($value === '*') {
             return $value;
         }
-
         return $value;
     }
 
-    protected function typeChar(Fluent $column)
-    {
-        if ($column->length < 256) {
+    protected function typeChar(Fluent $column) {
+        if($column->length < 256){
             return 'char('.(int)$column->length.')';
         }
-
         return 'char(255)';
     }
-
     /**
      * Create the column definition for a string type.
      *
@@ -341,13 +323,11 @@ class IfxGrammar extends Grammar
      */
     protected function typeString(Fluent $column)
     {
-        if ($column->length < 256) {
+        if($column->length < 256)
             return "varchar({$column->length})";
-        } elseif ($column->length < 32740) {
+        else if($column->length < 32740)
             return "lvarchar({$column->length})";
-        }
-
-        return 'lvarchar(32739)';
+        return "lvarchar(32739)";
     }
 
     /**
@@ -357,15 +337,7 @@ class IfxGrammar extends Grammar
      */
     protected function typeLongText(Fluent $column)
     {
-        // TODO: I like to avoid using the TEXT type,
-        //  as the PDO driver will return it as a stream resource
-        //  stream_type: "informix PDO Lob stream"
-        //  which breaks Laravel Eloquent
-        if (!isset($column->length)) {
-            return 'lvarchar(4096)';
-        }
-
-        return $this->typeString($column);
+        return 'text';
     }
 
     /**
@@ -375,11 +347,7 @@ class IfxGrammar extends Grammar
      */
     protected function typeMediumText(Fluent $column)
     {
-        if (!isset($column->length)) {
-            return 'lvarchar(2048)';
-        }
-
-        return $this->typeString($column);
+        return 'text';
     }
 
     /**
@@ -389,11 +357,7 @@ class IfxGrammar extends Grammar
      */
     protected function typeText(Fluent $column)
     {
-        if (!isset($column->length)) {
-            return 'lvarchar(2048)';
-        }
-
-        return $this->typeString($column);
+        return 'text';
     }
 
     /**
@@ -403,10 +367,9 @@ class IfxGrammar extends Grammar
      */
     protected function typeBigInteger(Fluent $column)
     {
-        if ($column->autoIncrement) {
+        if($column->autoIncrement){
             return 'serial8(1)';
         }
-
         return 'int8';
     }
 
@@ -417,10 +380,9 @@ class IfxGrammar extends Grammar
      */
     protected function typeInteger(Fluent $column)
     {
-        if ($column->autoIncrement) {
+        if($column->autoIncrement){
             return 'serial(1)';
         }
-
         return 'int';
     }
 
@@ -443,7 +405,6 @@ class IfxGrammar extends Grammar
     {
         return 'smallint';
     }
-
     /**
      * Create the column definition for a tiny integer type.
      *
@@ -483,6 +444,7 @@ class IfxGrammar extends Grammar
     {
         return "decimal({$column->total}, {$column->places})";
     }
+
 
     /**
      * Create the column definition for a boolean type.
@@ -592,6 +554,7 @@ class IfxGrammar extends Grammar
     }
 
     /**
+     *
      * @return string|null
      */
     protected function modifyBefore(Blueprint $blueprint, Fluent $column)
@@ -617,4 +580,6 @@ class IfxGrammar extends Grammar
 
         return strval($value);
     }
+
+
 }

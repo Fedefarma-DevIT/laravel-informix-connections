@@ -3,19 +3,19 @@
  * Created by PhpStorm.
  * User: llaijiale
  * Date: 2017/8/2
- * Time: 10:40.
+ * Time: 10:40
  */
 
 namespace Poyii\Informix;
 
 use Illuminate\Support\Arr;
 use Illuminate\Support\ServiceProvider;
-
 /**
  * Class InformixDBServiceProvider.
  */
 class InformixDBServiceProvider extends ServiceProvider
 {
+
     /**
      * Boot.
      */
@@ -24,8 +24,7 @@ class InformixDBServiceProvider extends ServiceProvider
         $this->publishes(
             [
                 __DIR__.'/../../config/informix.php' => config_path('informix.php'),
-            ],
-            'informix-config'
+            ]
         );
     }
 
@@ -37,6 +36,7 @@ class InformixDBServiceProvider extends ServiceProvider
     public function register()
     {
         if (file_exists(config_path('informix.php'))) {
+
             $this->mergeConfigFrom(config_path('informix.php'), 'database.connections');
 
             $config = $this->app['config']->get('informix', []);
